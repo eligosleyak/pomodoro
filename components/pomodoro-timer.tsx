@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Play, Pause, RotateCcw, Check, Coffee, Brain, Volume2, VolumeX } from "lucide-react"
 import { collection, addDoc, Timestamp, query, where, getDocs } from "firebase/firestore"
 import SoundUtils from "@/utils/sound-utils"
+import TimerUtils from "@/utils/timer-utils"
 
 // Timer durations in seconds
 const WORK_TIME = 25 * 60
@@ -25,7 +26,7 @@ type PomodoroTimerProps = {
 }
 
 export default function PomodoroTimer({ db, user, updateCompletedPomodoros, completedPomodoros }: PomodoroTimerProps) {
-  const [time, setTime] = useState(WORK_TIME)
+  const [timeRemaining, setTimeRemaining] = useState(WORK_TIME)
   const [isActive, setIsActive] = useState(false)
   const [taskName, setTaskName] = useState("")
   const [phase, setPhase] = useState<PomodoroPhase>("work")
@@ -33,8 +34,19 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
   const [autoStartBreaks, setAutoStartBreaks] = useState(true)
   const [autoStartPomodoros, setAutoStartPomodoros] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(true)
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // References for timer tracking
+  const phaseRef = useRef<PomodoroPhase>("work")
+  const isActiveRef = useRef<boolean>(false)
+
   const soundUtils = SoundUtils.getInstance()
+  const timerUtils = TimerUtils.getInstance()
+
+  // Update refs when state changes
+  useEffect(() => {
+    phaseRef.current = phase
+    isActiveRef.current = isActive
+  }, [phase, isActive])
 
   // Load completed pomodoros count and sound settings on component mount
   useEffect(() => {
@@ -44,6 +56,11 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
 
     // Load sound settings
     setSoundEnabled(soundUtils.isEnabled())
+
+    // Request notification permission
+    if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+      Notification.requestPermission()
+    }
   }, [db, user])
 
   const loadCompletedPomodoros = async () => {
@@ -94,13 +111,19 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
                 : `Break completed. ${phase === "shortBreak" ? "Ready to work?" : "Ready for a new cycle?"}`,
             icon: "/favicon.ico",
           })
-        } else if (Notification.permission !== "denied") {
-          Notification.requestPermission()
         }
       }
     } catch (error) {
       console.error("Error saving session:", error)
     }
+  }
+
+  const handleTimerComplete = () => {
+    // Save the completed session
+    saveSession()
+
+    // Move to the next phase
+    moveToNextPhase()
   }
 
   const moveToNextPhase = () => {
@@ -112,56 +135,73 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
       if (newPomodorosInCycle === 0) {
         // Time for a long break
         setPhase("longBreak")
-        setTime(LONG_BREAK_TIME)
+        setTimeRemaining(LONG_BREAK_TIME)
       } else {
         // Time for a short break
         setPhase("shortBreak")
-        setTime(SHORT_BREAK_TIME)
+        setTimeRemaining(SHORT_BREAK_TIME)
       }
 
       // Auto-start breaks if enabled
       if (autoStartBreaks) {
-        setIsActive(true)
+        setTimeout(() => startTimer(), 300)
       } else {
         setIsActive(false)
       }
     } else {
       // After any break
       setPhase("work")
-      setTime(WORK_TIME)
+      setTimeRemaining(WORK_TIME)
 
       // Auto-start work if enabled
       if (autoStartPomodoros) {
-        setIsActive(true)
+        setTimeout(() => startTimer(), 300)
       } else {
         setIsActive(false)
       }
     }
   }
 
-  useEffect(() => {
-    if (isActive) {
-      intervalRef.current = setInterval(() => {
-        setTime((prevTime) => {
-          if (prevTime <= 1) {
-            clearInterval(intervalRef.current!)
-            saveSession()
-            moveToNextPhase()
-            return 0
-          }
-          return prevTime - 1
-        })
-      }, 1000)
-    } else if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-    }
+  const startTimer = () => {
+    // Set active state
+    setIsActive(true)
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
+    // Start the timer using TimerUtils
+    timerUtils.startTimer(
+      timeRemaining,
+      // onTick callback
+      (remaining) => {
+        setTimeRemaining(remaining)
+      },
+      // onComplete callback
+      handleTimerComplete,
+    )
+  }
+
+  const pauseTimer = () => {
+    // Pause the timer
+    timerUtils.pauseTimer()
+
+    // Set inactive state
+    setIsActive(false)
+  }
+
+  const resetTimer = () => {
+    // Reset the timer
+    timerUtils.resetTimer()
+
+    // Set inactive state
+    setIsActive(false)
+
+    // Reset to the current phase's default time
+    if (phase === "work") {
+      setTimeRemaining(WORK_TIME)
+    } else if (phase === "shortBreak") {
+      setTimeRemaining(SHORT_BREAK_TIME)
+    } else {
+      setTimeRemaining(LONG_BREAK_TIME)
     }
-  }, [isActive, phase])
+  }
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -171,31 +211,29 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
 
   const handleStart = () => {
     soundUtils.play("buttonClick")
-    setIsActive(true)
+    startTimer()
   }
 
   const handlePause = () => {
     soundUtils.play("buttonClick")
-    setIsActive(false)
+    pauseTimer()
   }
 
   const handleReset = () => {
     soundUtils.play("buttonClick")
-    setIsActive(false)
-
-    // Reset to the current phase's default time
-    if (phase === "work") {
-      setTime(WORK_TIME)
-    } else if (phase === "shortBreak") {
-      setTime(SHORT_BREAK_TIME)
-    } else {
-      setTime(LONG_BREAK_TIME)
-    }
+    resetTimer()
   }
 
   const handleSkip = () => {
     soundUtils.play("buttonClick")
+
+    // Reset the timer
+    timerUtils.resetTimer()
+
+    // Set inactive state
     setIsActive(false)
+
+    // Move to next phase without saving
     moveToNextPhase()
   }
 
@@ -261,7 +299,7 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
             {getPhaseTitle()}
           </Badge>
 
-          <div className="text-6xl font-bold tabular-nums text-primary">{formatTime(time)}</div>
+          <div className="text-6xl font-bold tabular-nums text-primary">{formatTime(timeRemaining)}</div>
 
           {phase === "work" && (
             <Input
