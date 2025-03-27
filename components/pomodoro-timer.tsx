@@ -144,7 +144,11 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
 
       // Auto-start breaks if enabled
       if (autoStartBreaks) {
-        setTimeout(() => startTimer(), 300)
+        setTimeout(() => {
+          // Make sure we're using the correct time for the break
+          const breakDuration = newPomodorosInCycle === 0 ? LONG_BREAK_TIME : SHORT_BREAK_TIME
+          startTimer(breakDuration)
+        }, 300)
       } else {
         setIsActive(false)
       }
@@ -155,20 +159,22 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
 
       // Auto-start work if enabled
       if (autoStartPomodoros) {
-        setTimeout(() => startTimer(), 300)
+        setTimeout(() => {
+          startTimer(WORK_TIME)
+        }, 300)
       } else {
         setIsActive(false)
       }
     }
   }
 
-  const startTimer = () => {
+  const startTimer = (duration = timeRemaining) => {
     // Set active state
     setIsActive(true)
 
     // Start the timer using TimerUtils
     timerUtils.startTimer(
-      timeRemaining,
+      duration,
       // onTick callback
       (remaining) => {
         setTimeRemaining(remaining)
