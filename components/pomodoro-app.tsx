@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, List, User } from "lucide-react"
+import { Clock, List, User, HelpCircle } from "lucide-react"
 import { initializeApp } from "firebase/app"
 import { getFirestore } from "firebase/firestore"
 import { getAuth, onAuthStateChanged } from "firebase/auth"
@@ -11,6 +11,7 @@ import { getAuth, onAuthStateChanged } from "firebase/auth"
 import PomodoroTimer from "./pomodoro-timer"
 import SessionHistory from "./session-history"
 import AuthComponent from "./auth-component"
+import PomodoroInfo from "./pomodoro-info"
 
 // Firebase configuration
 const firebaseConfig = {
@@ -71,7 +72,7 @@ export default function PomodoroApp() {
   return (
     <Card className="w-full max-w-md shadow-lg">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="timer" className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
             Timer
@@ -79,6 +80,10 @@ export default function PomodoroApp() {
           <TabsTrigger value="history" className="flex items-center gap-2">
             <List className="h-4 w-4" />
             History
+          </TabsTrigger>
+          <TabsTrigger value="info" className="flex items-center gap-2">
+            <HelpCircle className="h-4 w-4" />
+            Info
           </TabsTrigger>
           <TabsTrigger value="account" className="flex items-center gap-2">
             <User className="h-4 w-4" />
@@ -97,6 +102,10 @@ export default function PomodoroApp() {
 
         <TabsContent value="history" className="p-0">
           <SessionHistory db={db} user={user} updateCompletedPomodoros={updateCompletedPomodoros} />
+        </TabsContent>
+
+        <TabsContent value="info" className="p-0">
+          <PomodoroInfo />
         </TabsContent>
 
         <TabsContent value="account" className="p-0">
