@@ -6,6 +6,7 @@ class TimerUtils {
     onTick?: (remaining: number) => void
     onComplete?: () => void
   } = {}
+  private isTimerActive = false
 
   private constructor() {
     // Initialize worker if in browser environment
@@ -20,6 +21,7 @@ class TimerUtils {
           if (type === "tick" && this.callbacks.onTick) {
             this.callbacks.onTick(remaining)
           } else if (type === "complete" && this.callbacks.onComplete) {
+            this.isTimerActive = false
             this.callbacks.onComplete()
           }
         }
@@ -40,6 +42,7 @@ class TimerUtils {
     // Store callbacks
     this.callbacks.onTick = onTick
     this.callbacks.onComplete = onComplete
+    this.isTimerActive = true
 
     // Start the timer in the worker
     if (this.worker) {
@@ -52,15 +55,21 @@ class TimerUtils {
   }
 
   public pauseTimer(): void {
+    this.isTimerActive = false
     if (this.worker) {
       this.worker.postMessage({ command: "pause" })
     }
   }
 
   public resetTimer(): void {
+    this.isTimerActive = false
     if (this.worker) {
       this.worker.postMessage({ command: "reset" })
     }
+  }
+
+  public isActive(): boolean {
+    return this.isTimerActive
   }
 
   private fallbackTimer(duration: number): void {
@@ -78,6 +87,7 @@ class TimerUtils {
 
       if (now >= targetTime) {
         if (this.callbacks.onComplete) {
+          this.isTimerActive = false
           this.callbacks.onComplete()
         }
         clearInterval(intervalId)

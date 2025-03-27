@@ -38,6 +38,7 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
   // References for timer tracking
   const phaseRef = useRef<PomodoroPhase>("work")
   const isActiveRef = useRef<boolean>(false)
+  const currentPhaseRef = useRef<PomodoroPhase>("work")
 
   const soundUtils = SoundUtils.getInstance()
   const timerUtils = TimerUtils.getInstance()
@@ -46,6 +47,7 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
   useEffect(() => {
     phaseRef.current = phase
     isActiveRef.current = isActive
+    currentPhaseRef.current = phase
   }, [phase, isActive])
 
   // Load completed pomodoros count and sound settings on component mount
@@ -83,16 +85,19 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
   const saveSession = async () => {
     try {
       if (db && user) {
+        // Use currentPhaseRef to ensure we're saving the correct phase
+        const currentPhase = currentPhaseRef.current
+
         await addDoc(collection(db, "pomodoro_sessions"), {
           userId: user.uid,
-          taskName: phase === "work" ? taskName || "Unnamed Task" : "Break",
-          duration: getDurationMinutes(),
-          type: phase,
+          taskName: currentPhase === "work" ? taskName || "Unnamed Task" : "Break",
+          duration: getDurationMinutes(currentPhase),
+          type: currentPhase,
           completedAt: Timestamp.now(),
         })
 
         // Only update completed pomodoros count for work sessions
-        if (phase === "work") {
+        if (currentPhase === "work") {
           updateCompletedPomodoros(completedPomodoros + 1)
 
           // Play work complete sound
@@ -104,11 +109,11 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
 
         // Show notification
         if (Notification.permission === "granted") {
-          new Notification(`${getPhaseTitle()} Completed!`, {
+          new Notification(`${getPhaseTitle(currentPhase)} Completed!`, {
             body:
-              phase === "work"
+              currentPhase === "work"
                 ? `You completed: ${taskName || "Unnamed Task"}`
-                : `Break completed. ${phase === "shortBreak" ? "Ready to work?" : "Ready for a new cycle?"}`,
+                : `Break completed. ${currentPhase === "shortBreak" ? "Ready to work?" : "Ready for a new cycle?"}`,
             icon: "/favicon.ico",
           })
         }
@@ -127,7 +132,10 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
   }
 
   const moveToNextPhase = () => {
-    if (phase === "work") {
+    // Get the current phase from the ref to ensure we're using the latest value
+    const currentPhase = currentPhaseRef.current
+
+    if (currentPhase === "work") {
       // After work session
       const newPomodorosInCycle = (pomodorosInCycle + 1) % POMODOROS_UNTIL_LONG_BREAK
       setPomodorosInCycle(newPomodorosInCycle)
@@ -136,24 +144,31 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
         // Time for a long break
         setPhase("longBreak")
         setTimeRemaining(LONG_BREAK_TIME)
+
+        // Auto-start breaks if enabled
+        if (autoStartBreaks) {
+          setTimeout(() => {
+            startTimer(LONG_BREAK_TIME)
+          }, 300)
+        } else {
+          setIsActive(false)
+        }
       } else {
         // Time for a short break
         setPhase("shortBreak")
         setTimeRemaining(SHORT_BREAK_TIME)
-      }
 
-      // Auto-start breaks if enabled
-      if (autoStartBreaks) {
-        setTimeout(() => {
-          // Make sure we're using the correct time for the break
-          const breakDuration = newPomodorosInCycle === 0 ? LONG_BREAK_TIME : SHORT_BREAK_TIME
-          startTimer(breakDuration)
-        }, 300)
-      } else {
-        setIsActive(false)
+        // Auto-start breaks if enabled
+        if (autoStartBreaks) {
+          setTimeout(() => {
+            startTimer(SHORT_BREAK_TIME)
+          }, 300)
+        } else {
+          setIsActive(false)
+        }
       }
     } else {
-      // After any break
+      // After any break (shortBreak or longBreak)
       setPhase("work")
       setTimeRemaining(WORK_TIME)
 
@@ -217,7 +232,18 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
 
   const handleStart = () => {
     soundUtils.play("buttonClick")
-    startTimer()
+
+    // Start with the appropriate duration for the current phase
+    let duration
+    if (phase === "work") {
+      duration = WORK_TIME
+    } else if (phase === "shortBreak") {
+      duration = SHORT_BREAK_TIME
+    } else {
+      duration = LONG_BREAK_TIME
+    }
+
+    startTimer(duration)
   }
 
   const handlePause = () => {
@@ -249,8 +275,8 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
     soundUtils.play("buttonClick")
   }
 
-  const getPhaseTitle = () => {
-    switch (phase) {
+  const getPhaseTitle = (phaseType: PomodoroPhase = phase) => {
+    switch (phaseType) {
       case "work":
         return "Focus Time"
       case "shortBreak":
@@ -260,8 +286,8 @@ export default function PomodoroTimer({ db, user, updateCompletedPomodoros, comp
     }
   }
 
-  const getDurationMinutes = () => {
-    switch (phase) {
+  const getDurationMinutes = (phaseType: PomodoroPhase = phase) => {
+    switch (phaseType) {
       case "work":
         return 25
       case "shortBreak":
